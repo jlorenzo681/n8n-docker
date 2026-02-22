@@ -217,8 +217,8 @@ hr
 log "${BOLD}Starting core services${NC}"
 hr
 
-$COMPOSE up -d postgres redis n8n
-ok "n8n + PostgreSQL + Redis started"
+$COMPOSE up -d postgres redis qdrant n8n
+ok "n8n + PostgreSQL + Redis + Qdrant started"
 
 # ── Start Ollama with the right profile ───────────────────────────────
 hr
@@ -243,6 +243,19 @@ until curl -sf http://localhost:11434/ &>/dev/null; do
 done
 ok "Ollama API ready"
 
+# ── Wait for Qdrant to be ready ───────────────────────────────────────
+log "Waiting for Qdrant API..."
+Q_RETRIES=0
+until curl -sf http://localhost:6333/ &>/dev/null; do
+    Q_RETRIES=$((Q_RETRIES + 1))
+    if [[ $Q_RETRIES -ge $MAX_RETRIES ]]; then
+        err "Qdrant failed to start after ${MAX_RETRIES} attempts"
+        exit 1
+    fi
+    sleep 2
+done
+ok "Qdrant API ready"
+
 # ── Pull the AI model ────────────────────────────────────────────────
 hr
 log "${BOLD}Pulling model: ${MODEL_NAME}${NC}"
@@ -263,6 +276,31 @@ else
     $RUNTIME exec n8n-ollama ollama pull "$MODEL_NAME"
     ok "Model ${MODEL_NAME} pulled successfully"
 fi
+
+# ── Setup RAG (Ingest PDFs) ──────────────────────────────────────────
+hr
+log "${BOLD}Setting up Knowledge Base (RAG)${NC}"
+hr
+
+log "Pulling embedding model: nomic-embed-text..."
+$RUNTIME exec n8n-ollama ollama pull nomic-embed-text
+
+log "Ingesting PDFs into Qdrant..."
+# Find the network name used by compose (usually <folder>_n8n-network)
+NET_NAME=$($RUNTIME network ls --format "{{.Name}}" | grep n8n-network | head -n 1)
+if [ -z "$NET_NAME" ]; then
+    NET_NAME="n8n-docker_n8n-network"
+fi
+
+PROJECT=$(basename "$PWD")
+
+$RUNTIME run --rm \
+    --network "$NET_NAME" \
+    -v "$(pwd)/ingest_pdf.py:/app/ingest_pdf.py:ro" \
+    -v "${PROJECT}_n8n_files:/files:ro" \
+    python:3.11-slim \
+    bash -c "pip install -q pymupdf ollama qdrant-client && python /app/ingest_pdf.py"
+ok "PDF ingestion complete"
 
 # ── Final health check ────────────────────────────────────────────────
 hr
@@ -302,6 +340,14 @@ if $RUNTIME exec n8n-redis redis-cli ping &>/dev/null; then
     ok "Redis ............ PONG"
 else
     err "Redis is not responding"
+    ALL_OK=false
+fi
+
+# Qdrant
+if curl -sf http://localhost:6333/ &>/dev/null; then
+    ok "Qdrant ........... healthy"
+else
+    err "Qdrant is not responding"
     ALL_OK=false
 fi
 

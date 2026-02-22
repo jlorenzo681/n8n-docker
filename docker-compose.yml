@@ -120,6 +120,21 @@ services:
       ollama-gpu:
         condition: service_healthy
 
+  # ─── Qdrant (Vector Database) ───────────────────────────────
+  qdrant:
+    image: docker.io/qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      n8n-network:
+        aliases:
+          - qdrant
+
   # ─── n8n (workflow engine & chatbot) ───────────────────────────────
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -161,8 +176,7 @@ volumes:
   ollama_data:
   n8n_data:
   n8n_files:
-
-
+  qdrant_data:
 networks:
   n8n-network:
     driver: bridge
