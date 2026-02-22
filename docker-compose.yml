@@ -1,0 +1,164 @@
+services:
+  # ─── PostgreSQL (n8n internal database) ────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: n8n-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - n8n-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis (chat memory) ───────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: n8n-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - n8n-network
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Ollama – CPU profile ──────────────────────────────────────────
+  ollama-cpu:
+    image: ollama/ollama:latest
+    container_name: n8n-ollama
+    profiles: [ "cpu" ]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - n8n-network
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── Ollama – GPU (NVIDIA) profile ─────────────────────────────────
+  ollama-gpu:
+    image: ollama/ollama:latest
+    container_name: n8n-ollama
+    profiles: [ "gpu" ]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - n8n-network
+    devices:
+      - nvidia.com/gpu=all
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── Ollama model puller (one-shot init) ───────────────────────────
+  ollama-pull-cpu:
+    image: ollama/ollama:latest
+    profiles: [ "cpu" ]
+    container_name: n8n-ollama-pull
+    restart: "no"
+    networks:
+      - n8n-network
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "⏳ Waiting for Ollama to be ready..."
+        until curl -sf http://ollama-cpu:11434/ > /dev/null 2>&1; do sleep 2; done
+        echo "📦 Pulling model: ${OLLAMA_MODEL_CPU:-lfm2.5-thinking}..."
+        curl -sf http://ollama-cpu:11434/api/pull -d "{\"name\": \"${OLLAMA_MODEL_CPU:-lfm2.5-thinking}\"}"
+        echo ""
+        echo "✅ Model ready."
+    depends_on:
+      ollama-cpu:
+        condition: service_healthy
+
+  ollama-pull-gpu:
+    image: ollama/ollama:latest
+    profiles: [ "gpu" ]
+    container_name: n8n-ollama-pull
+    restart: "no"
+    networks:
+      - n8n-network
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        echo "⏳ Waiting for Ollama to be ready..."
+        until curl -sf http://ollama-gpu:11434/ > /dev/null 2>&1; do sleep 2; done
+        echo "📦 Pulling model: ${OLLAMA_MODEL_GPU:-mistral}..."
+        curl -sf http://ollama-gpu:11434/api/pull -d "{\"name\": \"${OLLAMA_MODEL_GPU:-mistral}\"}"
+        echo ""
+        echo "✅ Model ready."
+    depends_on:
+      ollama-gpu:
+        condition: service_healthy
+
+  # ─── n8n (workflow engine & chatbot) ───────────────────────────────
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      # Database
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # n8n config
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Madrid}
+      # Run as root to avoid volume permission issues
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - n8n_files:/files
+    networks:
+      - n8n-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  n8n_data:
+  n8n_files:
+
+
+networks:
+  n8n-network:
+    driver: bridge
