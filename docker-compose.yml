@@ -44,7 +44,9 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - n8n-network
+      n8n-network:
+        aliases:
+          - ollama
     healthcheck:
       test: [ "CMD", "ollama", "list" ]
       interval: 15s
@@ -62,7 +64,9 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - n8n-network
+      n8n-network:
+        aliases:
+          - ollama
     devices:
       - nvidia.com/gpu=all
     healthcheck:
@@ -86,8 +90,8 @@ services:
       - |
         echo "⏳ Waiting for Ollama to be ready..."
         until curl -sf http://ollama-cpu:11434/ > /dev/null 2>&1; do sleep 2; done
-        echo "📦 Pulling model: ${OLLAMA_MODEL_CPU:-lfm2.5-thinking}..."
-        curl -sf http://ollama-cpu:11434/api/pull -d "{\"name\": \"${OLLAMA_MODEL_CPU:-lfm2.5-thinking}\"}"
+        echo "📦 Pulling model: ${OLLAMA_MODEL_CPU:-hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q4_K_M}..."
+        curl -sf http://ollama-cpu:11434/api/pull -d "{\"name\": \"${OLLAMA_MODEL_CPU:-hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q4_K_M}\"}"
         echo ""
         echo "✅ Model ready."
     depends_on:

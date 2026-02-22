@@ -42,6 +42,10 @@ log "Using ${BOLD}${COMPOSE}${NC} (runtime: ${RUNTIME})"
 
 # ── Detect NVIDIA GPU ─────────────────────────────────────────────────
 detect_gpu() {
+    if [[ "${FORCE_CPU:-false}" == "true" ]]; then
+        return 1
+    fi
+
     # Method 1: nvidia-smi (driver installed)
     if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
         GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader,nounits 2>/dev/null | head -1)
@@ -144,7 +148,7 @@ fi
 if [[ "$PROFILE" == "gpu" ]]; then
     MODEL_NAME="${MODEL_NAME:-mistral}"
 else
-    MODEL_NAME="${MODEL_NAME:-lfm2.5-thinking}"
+    MODEL_NAME="${MODEL_NAME:-hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q4_K_M}"
 fi
 
 log "Ollama model: ${BOLD}${MODEL_NAME}${NC}"
@@ -202,28 +206,8 @@ hr
 log "${BOLD}Pulling images (parallel)${NC}"
 hr
 
-IMAGES=(
-    "docker.io/library/postgres:16-alpine"
-    "docker.io/library/redis:7-alpine"
-    "docker.n8n.io/n8nio/n8n:latest"
-    "docker.io/ollama/ollama:latest"
-)
-
-PIDS=()
-for img in "${IMAGES[@]}"; do
-    $RUNTIME pull "$img" &>/dev/null &
-    PIDS+=($!)
-    log "  Pulling ${img##*/}..."
-done
-
-PULL_FAILED=false
-for pid in "${PIDS[@]}"; do
-    if ! wait "$pid"; then
-        PULL_FAILED=true
-    fi
-done
-
-if $PULL_FAILED; then
+log "  Pulling images for profile: ${PROFILE}..."
+if ! $COMPOSE --profile "$PROFILE" pull -q; then
     warn "Some image pulls had issues (may already be cached)"
 fi
 ok "All images ready"
@@ -265,13 +249,11 @@ log "${BOLD}Pulling model: ${MODEL_NAME}${NC}"
 hr
 
 # Check if model already exists
-EXISTING=$(curl -sf http://localhost:11434/api/tags 2>/dev/null \
-    | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-names = [m['name'].split(':')[0] for m in data.get('models', [])]
-print('yes' if '${MODEL_NAME}'.split(':')[0] in names else 'no')
-" 2>/dev/null || echo "no")
+if $RUNTIME exec n8n-ollama ollama list | grep -q "^${MODEL_NAME%:*}\b"; then
+    EXISTING="yes"
+else
+    EXISTING="no"
+fi
 
 if [[ "$EXISTING" == "yes" ]]; then
     ok "Model ${MODEL_NAME} already available — skipping pull"
@@ -290,10 +272,20 @@ hr
 ALL_OK=true
 
 # n8n
+N8N_RETRIES=0
+N8N_MAX_RETRIES=30
+until curl -sf -o /dev/null http://localhost:5678/; do
+    N8N_RETRIES=$((N8N_RETRIES + 1))
+    if [[ $N8N_RETRIES -ge $N8N_MAX_RETRIES ]]; then
+        break
+    fi
+    sleep 2
+done
+
 if curl -sf -o /dev/null http://localhost:5678/; then
     ok "n8n .............. http://localhost:5678"
 else
-    err "n8n is not responding"
+    err "n8n is not responding after ${N8N_MAX_RETRIES} attempts"
     ALL_OK=false
 fi
 
