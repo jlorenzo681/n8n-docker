@@ -1,0 +1,127 @@
+{
+  "name": "juniper-mist",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dfe02abf-288e-4395-9fb9-c5683fdac352",
+      "name": "When chat message received",
+      "webhookId": "8ef1d750-f172-420a-938a-3d597d5512ac"
+    },
+    {
+      "parameters": {
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        208,
+        0
+      ],
+      "id": "7c6ce00b-88fa-4d74-a4fb-c39967af4c3b",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": "mistral:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        208,
+        224
+      ],
+      "id": "b29a59fc-3423-44c9-b622-6e3b4bcc6323",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xtp8Kt7HlRbFbLAg",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "curlImport": "",
+        "httpVariantWarning": "",
+        "method": "GET",
+        "url": "",
+        "": "",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "mistApi",
+        "provideSslCertificates": false,
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": false,
+        "options": {},
+        "infoMessage": ""
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        560,
+        0
+      ],
+      "id": "794325a6-2af0-40ae-a3a8-4f56fa34ee39",
+      "name": "Mist HTTP Request",
+      "extendsCredential": "mistApi"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Mist HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "2a046d55-5669-4e13-b1a3-1c9299dca01c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f44c0041f90a103b76e68c5df305bbd47f7ee4eaa4736eae184eeab948896212"
+  },
+  "id": "ipfTj66SrM3abQKo",
+  "tags": []
+}
